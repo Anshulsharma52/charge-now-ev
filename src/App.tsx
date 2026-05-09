@@ -14,7 +14,9 @@ import ForgotPassword from "./pages/ForgotPassword";
 import OwnerDashboard from "./pages/OwnerDashboard";
 import StationDashboard from "./pages/StationDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
+import AdminLogin from "./pages/AdminLogin";
 import NotFound from "./pages/NotFound";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 const queryClient = new QueryClient();
 
@@ -47,9 +49,10 @@ const App = () => {
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
-              <Route path="/dashboard" element={<OwnerDashboard />} />
-              <Route path="/station" element={<StationDashboard />} />
-              <Route path="/admin" element={<AdminDashboard />} />
+              <Route path="/dashboard" element={<ProtectedRoute allowedRoles={["evowner", "owner"]}><OwnerDashboard /></ProtectedRoute>} />
+              <Route path="/station" element={<ProtectedRoute allowedRoles={["station"]}><StationDashboard /></ProtectedRoute>} />
+              <Route path="/admin/login" element={<AdminLogin />} />
+              <Route path="/admin" element={<ProtectedRoute allowedRoles={["admin"]}><AdminDashboard /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>

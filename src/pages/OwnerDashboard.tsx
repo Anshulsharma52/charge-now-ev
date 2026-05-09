@@ -1,25 +1,61 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import api from "@/lib/api";
+import { io } from "socket.io-client";
 import { useSearchParams } from "react-router-dom";
 import { MapPin, Zap, Clock, Star, CreditCard, CheckCircle2, XCircle, BatteryCharging, Wallet, Smartphone, Mail, Phone, Building2, Banknote, Car } from "lucide-react";
 import { motion } from "framer-motion";
 import DashboardLayout from "@/components/DashboardLayout";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { mockStations, mockBookings, bookedSlots, type Booking, type Station } from "@/lib/mock-data";
+import { bookedSlots, type Booking, type Station } from "@/lib/mock-data";
 import { useAuth } from "@/lib/auth-context";
 import { toast } from "sonner";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
+
+const MapUpdater = ({ center }: { center: [number, number] }) => {
+  const map = useMap();
+  useEffect(() => {
+    map.flyTo(center, 13);
+  }, [center, map]);
+  return <></>;
+};
+
+// Fix for default marker icons in Leaflet
+import icon from "leaflet/dist/images/marker-icon.png";
+import iconShadow from "leaflet/dist/images/marker-shadow.png";
+
+const DefaultIcon = L.icon({
+  iconUrl: icon,
+  shadowUrl: iconShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
 
 const allTimeSlots = [
   "09:00 AM", "09:30 AM", "10:00 AM", "10:30 AM",
   "11:00 AM", "11:30 AM", "12:00 PM", "12:30 PM",
   "01:00 PM", "01:30 PM", "02:00 PM", "02:30 PM",
   "03:00 PM", "03:30 PM", "04:00 PM", "04:30 PM",
-  "05:00 PM", "05:30 PM", "06:00 PM",
+  "05:00 PM", "05:30 PM", "06:00 PM", "06:30 PM", "07:00 PM", "07:30 PM", "08:00 PM", "08:30 PM", "09:00 PM", "09:30 PM", "10:00 PM", "10:30 PM", "11:00 PM", "11:30 PM"
 ];
+
+const convertTo24Hour = (time12h: string) => {
+  const [time, modifier] = time12h.split(' ');
+  let [hours, minutes] = time.split(':');
+  if (hours === '12') hours = '00';
+  if (modifier === 'PM') hours = String(parseInt(hours, 10) + 12);
+  return `${hours.padStart(2, '0')}:${minutes}`;
+};
 
 const durationOptions = [
   { label: "30 min", value: 0.5 },
@@ -29,10 +65,32 @@ const durationOptions = [
   { label: "2 hours", value: 2 },
 ];
 
+const getLocalTodayDate = () => {
+  const d = new Date();
+  const offset = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - offset).toISOString().split("T")[0];
+};
+
 const OwnerDashboard = () => {
   const { user } = useAuth();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const currentTab = searchParams.get("tab") || "dashboard";
+
+  const queryClient = useQueryClient();
+  const { data: stations = [] } = useQuery({
+    queryKey: ['stations'],
+    queryFn: async () => { const res = await api.get('/stations'); return res.data; }
+  });
+  
+  const { data: initialBookings = [], refetch: refetchBookings } = useQuery({
+    queryKey: ['bookings'],
+    queryFn: async () => { const res = await api.get('/bookings'); return res.data; }
+  });
+
+  const { data: allBookingsData = [], refetch: refetchAllSlots } = useQuery({
+    queryKey: ['allBookingsForSlots'],
+    queryFn: async () => { const res = await api.get('/bookings/all-slots'); return res.data; }
+  });
 
   const [selectedStation, setSelectedStation] = useState<Station | null>(null);
   const [selectedSlot, setSelectedSlot] = useState("");
@@ -40,30 +98,99 @@ const OwnerDashboard = () => {
   const [chargeType, setChargeType] = useState<"AC" | "DC">("DC");
   const [paymentMethod, setPaymentMethod] = useState<"UPI" | "Card" | "Wallet" | "COD">("UPI");
   const [carModel, setCarModel] = useState("");
-  const [bookings, setBookings] = useState<Booking[]>(mockBookings.filter((b) => b.userId === "u1"));
   const [bookingFilter, setBookingFilter] = useState<"all" | "pending" | "completed" | "cancelled">("all");
   const [reviewBookingId, setReviewBookingId] = useState<string | null>(null);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
-  const activeStations = mockStations.filter((s) => s.status === "active");
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  const [selectedDate, setSelectedDate] = useState(getLocalTodayDate());
+  const [searchQuery, setSearchQuery] = useState("");
+
+  useEffect(() => {
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition((pos) => {
+        setUserLocation([pos.coords.latitude, pos.coords.longitude]);
+      });
+    }
+  }, []);
+  
+  // Real-time updates via Socket.IO
+  useEffect(() => {
+    const socket = io("http://localhost:5000");
+    socket.on("station-updated", () => {
+      queryClient.invalidateQueries({ queryKey: ["stations"] });
+    });
+    socket.on("new-booking", () => {
+      refetchBookings();
+      refetchAllSlots();
+    });
+    return () => { socket.disconnect(); };
+  }, [queryClient, refetchBookings, refetchAllSlots]);
+
+  // Use state from query
+  const bookings = initialBookings;
+  const activeStations = stations.filter((s: Station) => s.status === "active");
+  const filteredMapStations = activeStations.filter((s: Station) => 
+    s.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    s.city.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const getPrice = (station: Station) => chargeType === "AC" ? station.pricePerKWhAC : station.pricePerKWhDC;
 
-  const getBookedSlots = (stationId: string) => bookedSlots[stationId] || [];
+  const getBookedSlots = (station: any) => {
+    const stationId = station._id || station.id;
+    const capacity = 1; // Explicitly 1 booking per time slot
+    const bookingsForDate = allBookingsData.filter((b: any) => {
+      const bStationId = b.stationId?._id || b.stationId;
+      return bStationId === stationId && b.date === selectedDate && b.status !== "cancelled" && b.status !== "rejected";
+    });
+    
+    const slotCounts: Record<string, number> = {};
+    bookingsForDate.forEach((b: any) => {
+      slotCounts[b.timeSlot] = (slotCounts[b.timeSlot] || 0) + 1;
+    });
+
+    return Object.keys(slotCounts).filter(slot => slotCounts[slot] >= capacity);
+  };
+
+  const getAvailableTimeSlots = (station: any) => {
+    const today = getLocalTodayDate();
+    const now24h = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+    const opStart = station.operatingHoursStart || "00:00";
+    const opEnd = station.operatingHoursEnd || "23:59";
+
+    return allTimeSlots.filter(slot => {
+      const slot24h = convertTo24Hour(slot);
+      if (slot24h < opStart || slot24h > opEnd) return false;
+      if (selectedDate === today && slot24h < now24h) return false;
+      return true;
+    });
+  };
+
+  const createBookingMut = useMutation({
+    mutationFn: async (newBooking: any) => await api.post('/bookings', newBooking),
+    onSuccess: () => {
+      toast.success(`Slot booked!`);
+      refetchBookings();
+      setSelectedStation(null);
+      setSelectedSlot("");
+      setCarModel("");
+    }
+  });
 
   const handleBook = () => {
     if (!selectedStation || !selectedSlot) return;
     const estimatedKWh = duration * (chargeType === "DC" ? 50 : 7.4);
     const price = Math.round(getPrice(selectedStation) * estimatedKWh);
-    const newBooking: Booking = {
-      id: `b${Date.now()}`,
-      stationId: selectedStation.id,
+    
+    // We intentionally map `selectedStation.id` to Station model objectId
+    createBookingMut.mutate({
+      stationId: selectedStation._id || selectedStation.id,
       stationName: selectedStation.name,
-      userId: "u1",
-      userName: user?.name || "User",
+      userName: user?.name || "EV Owner",
       userEmail: user?.email || "",
       userPhone: user?.phone || "",
-      date: new Date().toISOString().split("T")[0],
+      date: selectedDate,
       timeSlot: selectedSlot,
       duration,
       amount: price,
@@ -73,25 +200,42 @@ const OwnerDashboard = () => {
       chargeType,
       paymentMethod,
       paymentStatus: paymentMethod === "COD" ? "pending" : "paid",
-    };
-    setBookings((prev) => [newBooking, ...prev]);
-    toast.success(`Slot booked at ${selectedStation.name}!`);
-    setSelectedStation(null);
-    setSelectedSlot("");
-    setCarModel("");
+    });
   };
 
+  const updateBookingMut = useMutation({
+    mutationFn: async ({ id, status, paymentStatus }: any) => await api.put(`/bookings/${id}`, { status, paymentStatus }),
+    onSuccess: () => {
+      toast.success("Booking updated!");
+      refetchBookings();
+    }
+  });
+
   const cancelBooking = (id: string) => {
-    setBookings((prev) => prev.map((b) => b.id === id ? { ...b, status: "cancelled" as const, paymentStatus: b.paymentMethod === "COD" ? "pending" as const : "refunded" as const } : b));
-    toast.success("Booking cancelled!");
+    const b = bookings.find((b: any) => b._id === id || b.id === id);
+    if (!b) return;
+    updateBookingMut.mutate({ 
+      id: b._id || b.id, 
+      status: "cancelled", 
+      paymentStatus: b.paymentMethod === "COD" ? "pending" : "refunded" 
+    });
   };
+
+  const reviewBookingMut = useMutation({
+    mutationFn: async ({ id, status, paymentStatus, review }: any) => await api.put(`/bookings/${id}`, { status, paymentStatus, review }),
+    onSuccess: () => {
+      toast.success("Feedback submitted!");
+      refetchBookings();
+    }
+  });
 
   const submitReview = () => {
     if (!reviewBookingId) return;
-    setBookings((prev) => prev.map((b) => b.id === reviewBookingId ? {
-      ...b,
-      review: { id: `r${Date.now()}`, userId: "u1", userName: user?.name || "User", rating: reviewRating, comment: reviewComment, date: new Date().toISOString().split("T")[0] }
-    } : b));
+    reviewBookingMut.mutate({
+      id: reviewBookingId,
+      status: "completed",
+      review: { id: `r${Date.now()}`, userId: user?.id || "u1", userName: user?.name || "User", rating: reviewRating, comment: reviewComment, date: new Date().toISOString().split("T")[0] }
+    } as any);
     toast.success("Review submitted!");
     setReviewBookingId(null);
     setReviewComment("");
@@ -121,11 +265,80 @@ const OwnerDashboard = () => {
       </div>
 
       <Card className="bg-card border-border mb-8">
-        <CardHeader><CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-primary" /> Nearby Stations</CardTitle></CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-primary" /> Live Stations Map</CardTitle>
+          <Button variant="outline" size="sm" onClick={() => {
+            if ("geolocation" in navigator) {
+              navigator.geolocation.getCurrentPosition((pos) => {
+                setUserLocation([pos.coords.latitude, pos.coords.longitude]);
+              });
+            }
+          }}>
+            <MapPin className="h-4 w-4 mr-2" /> Locate Me
+          </Button>
+        </CardHeader>
         <CardContent>
-          <div className="h-48 rounded-xl bg-secondary border border-border flex items-center justify-center text-muted-foreground text-sm">
-            🗺️ Interactive map — connect a maps API to see live stations
+          <div className="mb-4">
+            <Input 
+              placeholder="Search stations by name or city..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="bg-secondary border-border"
+            />
           </div>
+          <ErrorBoundary>
+            <div className="h-96 rounded-xl overflow-hidden border border-border z-0 relative">
+              <MapContainer center={userLocation || [20.5937, 78.9629]} zoom={userLocation ? 13 : 5} style={{ height: "100%", width: "100%" }}>
+              {userLocation && <MapUpdater center={userLocation} />}
+              {userLocation && (
+                <Marker position={userLocation} icon={DefaultIcon}>
+                  <Popup>You are here</Popup>
+                </Marker>
+              )}
+              <TileLayer
+                attribution='&amp;copy <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              {filteredMapStations.map((station: any) => {
+                const parsedLat = Number(station.lat);
+                const parsedLng = Number(station.lng);
+                const lat = isNaN(parsedLat) || parsedLat === 0 ? 20.5937 : parsedLat;
+                const lng = isNaN(parsedLng) || parsedLng === 0 ? 78.9629 : parsedLng;
+                
+                return (
+                <Marker icon={DefaultIcon} key={station._id || station.id || `station-${lat}-${lng}`} position={[lat, lng]}>
+                  <Popup>
+                    <div className="text-center space-y-2">
+                      <h3 className="font-bold text-base m-0">{station.name}</h3>
+                      <p className="text-sm m-0 text-muted-foreground">{station.address}, {station.city}</p>
+                      <div className="flex flex-col items-center justify-center gap-2 text-sm">
+                        <span className={station.availableSlots > 0 ? "text-primary font-bold" : "text-destructive font-bold"}>
+                          {station.availableSlots}/{station.slots} Slots Free
+                        </span>
+                        {station.availableSlots === 0 && station.nextAvailableTime && (
+                           <span className="text-xs text-muted-foreground bg-secondary/50 px-2 py-1 rounded">
+                             Available at: {new Date(station.nextAvailableTime).toLocaleString(undefined, {
+                               timeStyle: 'short',
+                               dateStyle: 'short'
+                             })}
+                           </span>
+                        )}
+                      </div>
+                      <Button size="sm" className="w-full mt-2 gradient-primary text-primary-foreground" disabled={station.availableSlots === 0} onClick={() => {
+                        setSelectedStation(station);
+                        setSelectedSlot("");
+                        setSearchParams({ tab: 'stations' });
+                      }}>
+                        {station.availableSlots > 0 ? "Book Slot" : "Full"}
+                      </Button>
+                    </div>
+                  </Popup>
+                </Marker>
+               );
+              })}
+              </MapContainer>
+            </div>
+          </ErrorBoundary>
         </CardContent>
       </Card>
     </>
@@ -146,13 +359,23 @@ const OwnerDashboard = () => {
                     <p className="text-xs text-muted-foreground">{station.address}, {station.city}</p>
                   </div>
                   <div className="flex items-center gap-1 text-warning text-sm">
-                    <Star className="h-3.5 w-3.5 fill-current" /> {station.rating}
+                    <Star className="h-3.5 w-3.5 fill-current" /> {station.rating > 0 ? station.rating : 3}/5
                   </div>
                 </div>
-                <div className="flex items-center gap-4 text-sm mb-2">
-                  <span className={station.availableSlots > 0 ? "text-primary" : "text-destructive"}>
-                    {station.availableSlots}/{station.slots} slots free
-                  </span>
+                <div className="flex flex-col gap-1 mb-2">
+                  <div className="flex items-center gap-4 text-sm">
+                    <span className={station.availableSlots > 0 ? "text-primary" : "text-destructive"}>
+                      {station.availableSlots}/{station.slots} slots free
+                    </span>
+                  </div>
+                  {station.availableSlots === 0 && station.nextAvailableTime && (
+                    <div className="text-xs text-muted-foreground">
+                      Available at: {new Date(station.nextAvailableTime).toLocaleString(undefined, {
+                         timeStyle: 'short',
+                         dateStyle: 'short'
+                       })}
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-3 text-xs text-muted-foreground mb-3">
                   <span className="flex items-center gap-1"><BatteryCharging className="h-3 w-3 text-accent" /> AC: ₹{station.pricePerKWhAC}/kWh</span>
@@ -162,7 +385,7 @@ const OwnerDashboard = () => {
                 {/* Book Slot Dialog */}
                 <Dialog>
                   <DialogTrigger asChild>
-                    <Button size="sm" className="w-full gradient-primary text-primary-foreground" disabled={station.availableSlots === 0} onClick={() => { setSelectedStation(station); setSelectedSlot(""); }}>
+                    <Button size="sm" className="w-full gradient-primary text-primary-foreground" disabled={station.availableSlots === 0} onClick={() => { setSelectedStation(station); setSelectedSlot(""); setSelectedDate(getLocalTodayDate()); setPaymentMethod(station.acceptsOnlinePayments ? "UPI" : "COD"); }}>
                       {station.availableSlots > 0 ? "Book Slot" : "Full"}
                     </Button>
                   </DialogTrigger>
@@ -207,12 +430,28 @@ const OwnerDashboard = () => {
                         </div>
                       </div>
 
-                      {/* Time Slot Grid */}
+                      {/* Date and Time Slot Grid */}
                       <div>
-                        <div className="text-sm font-medium mb-2">Select Time Slot</div>
-                        <div className="grid grid-cols-4 gap-2">
-                          {allTimeSlots.map((slot) => {
-                            const isBooked = getBookedSlots(station.id).includes(slot);
+                        <div className="text-sm font-medium mb-2">Select Date & Time</div>
+                        <Input 
+                          type="date" 
+                          value={selectedDate} 
+                          onChange={(e) => { 
+                            const newDate = e.target.value;
+                            if (newDate < getLocalTodayDate()) {
+                              toast.error("Cannot select past dates");
+                              setSelectedDate(getLocalTodayDate());
+                            } else {
+                              setSelectedDate(newDate);
+                            }
+                            setSelectedSlot(""); 
+                          }} 
+                          min={getLocalTodayDate()} 
+                          className="bg-secondary border-border mb-3" 
+                        />
+                        <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto pr-2">
+                          {getAvailableTimeSlots(station).map((slot) => {
+                            const isBooked = getBookedSlots(station).includes(slot);
                             return (
                               <button key={slot} disabled={isBooked} onClick={() => setSelectedSlot(slot)}
                                 className={`p-2 rounded-lg border text-xs text-center transition-all ${
@@ -242,7 +481,7 @@ const OwnerDashboard = () => {
                             { value: "Card" as const, icon: CreditCard, label: "Card" },
                             { value: "Wallet" as const, icon: Wallet, label: "Wallet" },
                             { value: "COD" as const, icon: Banknote, label: "COD" },
-                          ]).map((pm) => (
+                          ]).filter(pm => selectedStation?.acceptsOnlinePayments || pm.value === "COD").map((pm) => (
                             <button key={pm.value} onClick={() => setPaymentMethod(pm.value)}
                               className={`p-2 rounded-lg border text-center text-xs transition-all flex flex-col items-center gap-1 ${
                                 paymentMethod === pm.value ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/30"
@@ -252,6 +491,11 @@ const OwnerDashboard = () => {
                             </button>
                           ))}
                         </div>
+                        {paymentMethod === "UPI" && selectedStation?.upiId && (
+                          <div className="mt-3 p-3 rounded-lg bg-secondary border border-border text-sm flex items-center justify-between">
+                            <div>Pay to UPI ID: <span className="font-bold text-primary">{selectedStation.upiId}</span></div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Total */}
@@ -286,8 +530,8 @@ const OwnerDashboard = () => {
         ))}
       </div>
       <div className="space-y-3">
-        {filteredBookings.map((b) => (
-          <Card key={b.id} className="bg-card border-border">
+        {filteredBookings.map((b: any) => (
+          <Card key={b._id || b.id} className="bg-card border-border">
             <CardContent className="p-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
@@ -308,12 +552,12 @@ const OwnerDashboard = () => {
                     "border-warning/30 text-warning"
                   }>{b.status}</Badge>
                   {(b.status === "pending" || b.status === "approved") && (
-                    <Button size="sm" variant="outline" onClick={() => cancelBooking(b.id)} className="border-destructive/30 text-destructive hover:bg-destructive/10">
+                    <Button size="sm" variant="outline" onClick={() => cancelBooking(b._id || b.id)} className="border-destructive/30 text-destructive hover:bg-destructive/10">
                       <XCircle className="h-3.5 w-3.5 mr-1" /> Cancel
                     </Button>
                   )}
                   {b.status === "completed" && !b.review && (
-                    <Button size="sm" variant="outline" onClick={() => setReviewBookingId(b.id)} className="border-warning/30 text-warning hover:bg-warning/10">
+                    <Button size="sm" variant="outline" onClick={() => setReviewBookingId(b._id || b.id)} className="border-warning/30 text-warning hover:bg-warning/10">
                       <Star className="h-3.5 w-3.5 mr-1" /> Review
                     </Button>
                   )}
@@ -360,8 +604,8 @@ const OwnerDashboard = () => {
   const renderPayments = () => (
     <div className="space-y-3">
       <h2 className="text-lg font-semibold mb-4">Payment History</h2>
-      {bookings.map((b) => (
-        <Card key={b.id} className="bg-card border-border">
+      {bookings.map((b: any) => (
+        <Card key={b._id || b.id} className="bg-card border-border">
           <CardContent className="p-4 flex items-center justify-between">
             <div>
               <div className="font-medium text-sm">{b.stationName}</div>
@@ -386,8 +630,8 @@ const OwnerDashboard = () => {
       <div className="space-y-3">
         <h2 className="text-lg font-semibold mb-4">My Reviews</h2>
         {reviewed.length === 0 && <p className="text-muted-foreground text-sm text-center py-8">No reviews yet. Complete a booking and leave a review!</p>}
-        {reviewed.map((b) => (
-          <Card key={b.id} className="bg-card border-border">
+        {reviewed.map((b: any) => (
+          <Card key={b._id || b.id} className="bg-card border-border">
             <CardContent className="p-4">
               <div className="font-medium">{b.stationName}</div>
               <div className="flex items-center gap-1 mt-1">

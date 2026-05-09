@@ -1,4 +1,4 @@
-import { Mail, Phone } from "lucide-react";
+import { Mail, Phone, Star } from "lucide-react";
 import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,8 +11,8 @@ interface AdminStationMastersProps {
 const AdminStationMasters = ({ stations }: AdminStationMastersProps) => {
   return (
     <div className="space-y-3">
-      {stations.map((station, i) => (
-        <motion.div key={station.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+      {stations.map((station: any, i) => (
+        <motion.div key={station._id || station.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
           <Card className="bg-card border-border">
             <CardContent className="p-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -22,8 +22,9 @@ const AdminStationMasters = ({ stations }: AdminStationMastersProps) => {
                     <span className="flex items-center gap-1"><Mail className="h-3 w-3" /> {station.ownerEmail}</span>
                     <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> {station.ownerPhone}</span>
                   </div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    Station: {station.name} · {station.city} · {station.slots} slots
+                  <div className="flex items-center flex-wrap gap-2 text-xs text-muted-foreground mt-1">
+                    <span>Station: {station.name} · {station.city} · {station.slots} slots</span>
+                    <span className="flex items-center gap-1 text-warning"><Star className="h-3 w-3 fill-current" /> {station.rating > 0 ? station.rating : 3}/5</span>
                   </div>
                 </div>
                 <Badge

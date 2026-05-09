@@ -1,4 +1,4 @@
-import { Building2, IndianRupee, TrendingUp, Users } from "lucide-react";
+import { Building2, IndianRupee, TrendingUp, Users, Star } from "lucide-react";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -7,9 +7,10 @@ interface AdminOverviewProps {
   totalBookings: number;
   totalRevenue: number;
   totalCommission: number;
+  recentReviews?: any[];
 }
 
-const AdminOverview = ({ activeCount, totalBookings, totalRevenue, totalCommission }: AdminOverviewProps) => {
+const AdminOverview = ({ activeCount, totalBookings, totalRevenue, totalCommission, recentReviews = [] }: AdminOverviewProps) => {
   const stats = [
     { icon: Building2, label: "Active Stations", value: activeCount, color: "text-primary" },
     { icon: Users, label: "Total Bookings", value: totalBookings, color: "text-accent" },
@@ -68,6 +69,29 @@ const AdminOverview = ({ activeCount, totalBookings, totalRevenue, totalCommissi
           </div>
         </CardContent>
       </Card>
+
+      {recentReviews.length > 0 && (
+        <Card className="bg-card border-border mt-8">
+          <CardHeader>
+            <CardTitle className="text-base">Recent Reviews</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {recentReviews.map((r, i) => (
+                <div key={i} className="p-3 bg-secondary/50 rounded-lg text-sm border border-border">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-medium">{r.stationName} <span className="text-muted-foreground font-normal ml-1">by {r.userName}</span></span>
+                    <div className="flex items-center gap-1 text-warning">
+                      {[...Array(r.rating)].map((_, idx) => <Star key={idx} className="h-3 w-3 fill-current" />)}
+                    </div>
+                  </div>
+                  <div className="text-muted-foreground italic">"{r.comment}"</div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </>
   );
 };

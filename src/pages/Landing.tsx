@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Zap, MapPin, Clock, Shield, ChevronRight, Battery, Car, BarChart3, ArrowRight, Sun, Moon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -22,6 +23,21 @@ const steps = [
 const Landing = () => {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
+  const [stats, setStats] = useState({ stations: "500+", bookings: "10K+", cities: "50+", uptime: "99%" });
+
+  useEffect(() => {
+    fetch("http://localhost:5000/api/stats")
+      .then(res => res.json())
+      .then(data => {
+        setStats({
+          stations: (data.stations > 0 ? data.stations : 500) + "+",
+          bookings: (data.bookings > 0 ? data.bookings : "10K") + "+",
+          cities: (data.cities > 0 ? data.cities : 50) + "+",
+          uptime: data.uptime || "99%"
+        });
+      })
+      .catch(console.error);
+  }, []);
 
   return (
     <div className="min-h-screen bg-background">
@@ -92,10 +108,10 @@ const Landing = () => {
             className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-4 max-w-2xl"
           >
             {[
-              ["500+", "Stations"],
-              ["10K+", "Bookings"],
-              ["50+", "Cities"],
-              ["99%", "Uptime"],
+              [stats.stations, "Stations"],
+              [stats.bookings, "Bookings"],
+              [stats.cities, "Cities"],
+              [stats.uptime, "Uptime"],
             ].map(([val, label]) => (
               <div key={label} className="text-center p-4 rounded-xl bg-card/80 dark:bg-card/60 backdrop-blur-sm border border-border shadow-sm">
                 <div className="text-3xl font-bold text-gradient">{val}</div>

@@ -9,12 +9,12 @@ import { useAuth, UserRole } from "@/lib/auth-context";
 import { toast } from "sonner";
 
 const roles: { value: UserRole; label: string; icon: React.ElementType; desc: string }[] = [
-  { value: "owner", label: "EV Owner", icon: User, desc: "Book charging slots" },
+  { value: "evowner", label: "EV Owner", icon: User, desc: "Book charging slots" },
   { value: "station", label: "Station Owner", icon: Building2, desc: "Manage your station" },
 ];
 
 const Signup = () => {
-  const [selectedRole, setSelectedRole] = useState<UserRole>("owner");
+  const [selectedRole, setSelectedRole] = useState<UserRole>("evowner");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -32,7 +32,7 @@ const Signup = () => {
   };
   const validateEmail = (e: string) => !e || (e.includes("@") && e.includes(".com"));
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !phone || !password) {
       toast.error("Please fill all required fields");
@@ -54,10 +54,14 @@ const Signup = () => {
       toast.error("Passwords don't match!");
       return;
     }
-    signup(name, email, phone, password, selectedRole);
-    toast.success("Account created successfully!");
-    if (selectedRole === "owner") navigate("/dashboard");
-    else navigate("/station");
+    try {
+      await signup(name, email, phone, password, selectedRole);
+      toast.success("Account created successfully!");
+      if (selectedRole === "evowner" || selectedRole === "owner") navigate("/dashboard");
+      else navigate("/station");
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to create account");
+    }
   };
 
   return (

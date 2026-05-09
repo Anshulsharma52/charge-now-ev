@@ -22,7 +22,7 @@ const AdminStations = ({ stations, onUpdateStatus }: AdminStationsProps) => {
   return (
     <div className="space-y-3">
       {stations.map((station, i) => (
-        <motion.div key={station.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+        <motion.div key={(station._id || station.id)} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
           <Card className="bg-card border-border">
             <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex-1 min-w-0">
@@ -50,13 +50,13 @@ const AdminStations = ({ stations, onUpdateStatus }: AdminStationsProps) => {
               </div>
               <div className="flex gap-2 shrink-0">
                 {station.status !== "active" && (
-                  <Button size="sm" onClick={() => handleStatus(station.id, "active")} className="bg-primary text-primary-foreground hover:bg-primary/90">
+                  <Button size="sm" onClick={() => handleStatus((station._id || station.id), "active")} className="bg-primary text-primary-foreground hover:bg-primary/90">
                     <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
                     {station.status === "suspended" ? "Unsuspend" : "Approve"}
                   </Button>
                 )}
                 {station.status === "active" && (
-                  <Button size="sm" variant="outline" onClick={() => handleStatus(station.id, "suspended")} className="border-destructive/30 text-destructive hover:bg-destructive/10">
+                  <Button size="sm" variant="outline" onClick={() => handleStatus((station._id || station.id), "suspended")} className="border-destructive/30 text-destructive hover:bg-destructive/10">
                     <Ban className="h-3.5 w-3.5 mr-1" /> Suspend
                   </Button>
                 )}

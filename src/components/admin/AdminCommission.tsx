@@ -48,7 +48,7 @@ const AdminCommission = ({ stations, defaultCommission, onDefaultCommissionChang
       <h3 className="font-semibold mb-3">Per-Station Commission</h3>
       <div className="space-y-3">
         {stations.map((station) => (
-          <Card key={station.id} className="bg-card border-border">
+          <Card key={(station._id || station.id)} className="bg-card border-border">
             <CardContent className="p-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
@@ -62,7 +62,7 @@ const AdminCommission = ({ stations, defaultCommission, onDefaultCommissionChang
                     max={50}
                     value={station.commissionRate || 15}
                     onChange={(e) => {
-                      onStationCommissionChange(station.id, +e.target.value);
+                      onStationCommissionChange((station._id || station.id), +e.target.value);
                       toast.success(`${station.name} commission updated to ${e.target.value}%`);
                     }}
                     className="w-20 bg-secondary border-border text-center"

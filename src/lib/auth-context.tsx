@@ -1,19 +1,22 @@
-import React, { createContext, useContext, useState, ReactNode } from "react";
+import React, { createContext, useContext, useState, ReactNode, useEffect } from "react";
+import api from "./api";
 
-export type UserRole = "owner" | "station" | "admin";
+export type UserRole = "evowner" | "owner" | "station" | "admin";
 
 export interface User {
-  id: string;
+  id?: string;
+  _id?: string;
   name: string;
   email: string;
   phone: string;
   role: UserRole;
+  token?: string;
 }
 
 interface AuthContextType {
   user: User | null;
-  login: (emailOrPhone: string, password: string, role: UserRole) => void;
-  signup: (name: string, email: string, phone: string, password: string, role: UserRole) => void;
+  login: (emailOrPhone: string, password: string, role: UserRole) => Promise<void>;
+  signup: (name: string, email: string, phone: string, password: string, role: UserRole) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
 }
@@ -26,28 +29,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return stored ? JSON.parse(stored) : null;
   });
 
-  const login = (emailOrPhone: string, _password: string, role: UserRole) => {
-    const newUser: User = {
-      id: crypto.randomUUID(),
-      name: emailOrPhone.includes("@") ? emailOrPhone.split("@")[0] : "User",
-      email: emailOrPhone.includes("@") ? emailOrPhone : "",
-      phone: !emailOrPhone.includes("@") ? emailOrPhone : "",
-      role,
-    };
-    setUser(newUser);
-    localStorage.setItem("pp_user", JSON.stringify(newUser));
+  useEffect(() => {
+    // Optionally fetch /api/auth/me to verify token on load
+  }, []);
+
+  const login = async (emailOrPhone: string, password: string, role: UserRole) => {
+    try {
+      const response = await api.post("/auth/login", { emailOrPhone, password, role });
+      const newUser = response.data;
+      setUser(newUser);
+      localStorage.setItem("pp_user", JSON.stringify(newUser));
+    } catch (error) {
+      console.error(error);
+      throw error;
+    }
   };
 
-  const signup = (name: string, email: string, phone: string, password: string, role: UserRole) => {
-    const newUser: User = {
-      id: crypto.randomUUID(),
-      name,
-      email,
-      phone,
-      role,
-    };
-    setUser(newUser);
-    localStorage.setItem("pp_user", JSON.stringify(newUser));
+  const signup = async (name: string, email: string, phone: string, password: string, role: UserRole) => {
+    try {
+      const response = await api.post("/auth/register", { name, email, phone, password, role });
+      const newUser = response.data;
+      setUser(newUser);
+      localStorage.setItem("pp_user", JSON.stringify(newUser));
+    } catch (error) {
+      console.error(error);
+      throw error;
+    }
   };
 
   const logout = () => {

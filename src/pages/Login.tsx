@@ -8,14 +8,13 @@ import { Label } from "@/components/ui/label";
 import { useAuth, UserRole } from "@/lib/auth-context";
 
 const roles: { value: UserRole; label: string; icon: React.ElementType; desc: string }[] = [
-  { value: "owner", label: "EV Owner", icon: User, desc: "Book charging slots" },
+  { value: "evowner", label: "EV Owner", icon: User, desc: "Book charging slots" },
   { value: "station", label: "Station Owner", icon: Building2, desc: "Manage your station" },
 ];
 
-const ADMIN_CODE = "admin@powerpulse";
 
 const Login = () => {
-  const [selectedRole, setSelectedRole] = useState<UserRole>("owner");
+  const [selectedRole, setSelectedRole] = useState<UserRole>("evowner");
   const [emailOrPhone, setEmailOrPhone] = useState("");
   const [password, setPassword] = useState("");
   const { login } = useAuth();
@@ -31,20 +30,19 @@ const Login = () => {
     return null;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!emailOrPhone || !password) return;
-    // Secret admin access — skip validation
-    if (emailOrPhone.trim().toLowerCase() === ADMIN_CODE) {
-      login(emailOrPhone, password, "admin");
-      navigate("/admin");
-      return;
-    }
+
     const err = validateInput();
     if (err) { import("sonner").then(m => m.toast.error(err)); return; }
-    login(emailOrPhone, password, selectedRole);
-    if (selectedRole === "owner") navigate("/dashboard");
-    else navigate("/station");
+    try {
+      await login(emailOrPhone, password, selectedRole);
+      if (selectedRole === "evowner" || selectedRole === "owner") navigate("/dashboard");
+      else navigate("/station");
+    } catch (err: any) {
+      import("sonner").then(m => m.toast.error(err.response?.data?.message || "Login failed"));
+    }
   };
 
   return (

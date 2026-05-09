@@ -1,5 +1,6 @@
 export interface Station {
   id: string;
+  _id?: string;
   name: string;
   address: string;
   city: string;
@@ -15,6 +16,7 @@ export interface Station {
   ownerEmail: string;
   ownerPhone: string;
   commissionRate?: number;
+  nextAvailableTime?: string;
   reviews?: Review[];
 }
 
